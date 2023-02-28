@@ -1,24 +1,40 @@
-# Create the SQL Server 
-resource "azurerm_mssql_server" "kopi-sql-server" {
-  name = "kopi-sql-server-instance" #NOTE: globally unique
-  resource_group_name = azurerm_resource_group.kopi-rg.name
-  location = azurerm_resource_group.kopi-rg.location
-  version = "12.0"
-  administrator_login = "kopisqladmin"
-  administrator_login_password = "MySQLAdm1nP@ssw0rd"
-  public_network_access_enabled = false
+resource "random_string" "username" {
+  length = 24
+  special = true
+  override_special = "%@!"
 }
-# Create a the SQL database 
-resource "azurerm_sql_database" "kopi-sql-db" {
-  depends_on = [azurerm_mssql_server.kopi-sql-server]
-  
-  name = "kopi-db"
-  resource_group_name = azurerm_resource_group.kopi-rg.name
-  location = azurerm_resource_group.kopi-rg.location
-  server_name = azurerm_mssql_server.kopi-sql-server.name
-  edition = "Standard"
-  collation = "Latin1_General_CI_AS"
-  max_size_bytes = "10737418240"
-  zone_redundant = false
-  read_scale = false
+
+resource "random_password" "password" {
+  length = 24
+  special = true
+  override_special = "%@!"
+}
+
+# # Create KeyVault Secret
+resource "azurerm_key_vault_secret" "sql-1-username" {
+  name         = "sql-server-1-username"
+  value        = random_string.username.result
+  key_vault_id = azurerm_key_vault.key_vault.id
+  tags = merge(local.common_tags, tomap({"type" = "key-vault-secret-username"}), tomap({"resource" = azurerm_mssql_server.sql-server_1.name}))
+  depends_on = [azurerm_key_vault.key_vault]
+}
+
+resource "azurerm_key_vault_secret" "sql-1-password" {
+  name         = "sql-server-1-password"
+  value        = random_password.password.result
+  key_vault_id = azurerm_key_vault.key_vault.id
+  tags = merge(local.common_tags, tomap({"type" = "key-vault-secret-password"}), tomap({"resource" = azurerm_mssql_server.sql-server_1.name}))
+  depends_on = [azurerm_key_vault_secret.sql-1-username]
+}
+
+
+resource "azurerm_mssql_server" "sql-server_1" {
+  name = "${local.resource-name-prefix}-sql-server-1"
+  resource_group_name = local.resource-group-name
+  location            = var.resource-location
+  version                      = "12.0"
+  administrator_login          = azurerm_key_vault_secret.sql-1-username.value
+  administrator_login_password = azurerm_key_vault_secret.sql-1-password.value
+  tags = merge(local.common_tags, tomap({"type" = "mssql-server"}))
+  depends_on = [azurerm_key_vault_secret.sql-1-password]
 }
